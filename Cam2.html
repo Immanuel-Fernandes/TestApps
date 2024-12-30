@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Geo-Tagged Photo with Overlay</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin: 20px;
+        }
+        video, canvas {
+            border: 1px solid #ccc;
+            margin: 10px;
+        }
+        button, select {
+            padding: 10px;
+            font-size: 16px;
+            margin: 10px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Geo-Tagged Photo</h1>
+    <label for="cameraSelect">Choose Camera:</label>
+    <select id="cameraSelect">
+        <option value="user">Front Camera</option>
+        <option value="environment">Back Camera</option>
+    </select>
+
+    <label for="resolutionSelect">Choose Resolution:</label>
+    <select id="resolutionSelect">
+        <option value="640x480">SD (640x480)</option>
+        <option value="1280x720">HD (1280x720)</option>
+        <option value="3840x2160">4K (3840x2160)</option>
+    </select>
+
+    <video id="video" autoplay playsinline></video>
+    <canvas id="canvas" style="display: none;"></canvas>
+    <p id="geoInfo">Fetching geolocation...</p>
+    <button id="captureBtn">Capture Photo</button>
+    <a id="downloadLink" style="display: none;">Download Photo</a>
+
+    <script>
+        const video = document.getElementById('video');
+        const canvas = document.getElementById('canvas');
+        const captureBtn = document.getElementById('captureBtn');
+        const geoInfo = document.getElementById('geoInfo');
+        const cameraSelect = document.getElementById('cameraSelect');
+        const resolutionSelect = document.getElementById('resolutionSelect');
+        const downloadLink = document.getElementById('downloadLink');
+        let geotag = '';
+        let currentStream = null;
+        let geoData = {
+            city: '',
+            state: '',
+            country: '',
+            latitude: '',
+            longitude: '',
+            date: '',
+            time: ''
+        };
+
+        async function startCamera(facingMode, resolution) {
+            if (currentStream) {
+                currentStream.getTracks().forEach((track) => track.stop());
+            }
+
+            const [width, height] = resolution.split('x').map(Number);
+
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: facingMode, width: { ideal: width }, height: { ideal: height } }
+                });
+                currentStream = stream;
+                video.srcObject = stream;
+            } catch (error) {
+                console.error('Error accessing the camera:', error);
+                alert('Unable to access the camera. Please allow camera permissions.');
+            }
+        }
+
+        async function fetchGeolocation() {
+            if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition(
+                    async (position) => {
+                        const { latitude, longitude } = position.coords;
+                        geoData.latitude = latitude.toFixed(6);
+                        geoData.longitude = longitude.toFixed(6);
+
+                        // Fetch city, state, and country information using a geocoding API
+                        const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${latitude}&lon=${longitude}`);
+                        const data = await response.json();
+
+                        geoData.city = data.address.city || 'Unknown';
+                        geoData.state = data.address.state || 'Unknown';
+                        geoData.country = data.address.country || 'Unknown';
+
+                        // Get date and time
+                        const now = new Date();
+                        geoData.date = now.toLocaleDateString();
+                        geoData.time = now.toLocaleTimeString();
+
+                        geoInfo.textContent = `Location: ${geoData.city}, ${geoData.state}, ${geoData.country} (Lat: ${geoData.latitude}, Lon: ${geoData.longitude})`;
+                    },
+                    (error) => {
+                        geoInfo.textContent = 'Unable to fetch geolocation.';
+                        console.error('Geolocation error:', error);
+                    }
+                );
+            } else {
+                geoInfo.textContent = 'Geolocation not supported.';
+            }
+        }
+
+        captureBtn.addEventListener('click', () => {
+            const ctx = canvas.getContext('2d');
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+            // Add overlay with geolocation and date/time
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+            ctx.fillRect(10, canvas.height - 100, canvas.width - 20, 90);
+            ctx.fillStyle = 'white';
+            ctx.font = '16px Arial';
+            ctx.fillText(`City: ${geoData.city}, State: ${geoData.state}, Country: ${geoData.country}`, 20, canvas.height - 70);
+            ctx.fillText(`Lat: ${geoData.latitude}, Lon: ${geoData.longitude}`, 20, canvas.height - 50);
+            ctx.fillText(`Date: ${geoData.date}, Time: ${geoData.time}`, 20, canvas.height - 30);
+
+            // Prepare download link
+            canvas.toBlob((blob) => {
+                const url = URL.createObjectURL(blob);
+                downloadLink.href = url;
+                downloadLink.download = 'geo-tagged-photo.jpg';
+                downloadLink.style.display = 'block';
+                downloadLink.textContent = 'Download Photo';
+            });
+        });
+
+        cameraSelect.addEventListener('change', (event) => {
+            const facingMode = event.target.value;
+            const resolution = resolutionSelect.value;
+            startCamera(facingMode, resolution);
+        });
+
+        resolutionSelect.addEventListener('change', () => {
+            const facingMode = cameraSelect.value;
+            const resolution = resolutionSelect.value;
+            startCamera(facingMode, resolution);
+        });
+
+        startCamera('user', resolutionSelect.value);
+        fetchGeolocation();
+    </script>
+</body>
+</html>
